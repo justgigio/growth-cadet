@@ -6,6 +6,7 @@ Rails.application.routes.draw do
   end
 
   get 'dns_records', to: 'api/v1/dns_records#index'
+  post 'dns_records', to: 'api/v1/dns_records#create'
 
   root to: 'api/v1/dns_records#index'
 end
