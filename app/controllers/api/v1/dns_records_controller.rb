@@ -6,10 +6,17 @@ module Api
         # must come from config
         records_per_page = 10
 
-        query_string = params.permit(:page, :included, :excluded)
-        page = query_string.require(:page)
+        begin
+          query_string = params.permit(:page, :included, :excluded)
+          page = query_string.require(:page)
+        rescue ActionController::ParameterMissing
+          json_response = {errors: {
+            page: "Parameter missing",
+          }}
+          return render json: json_response, status: :unprocessable_entity
+        end
 
-        addresses_query = Dns::Address.joins(:records)
+        addresses_query = Dns::Address.joins(:records).order(:id)
         included = []
         excluded = []
 
@@ -25,10 +32,13 @@ module Api
           addresses_query = addresses_query.where.not(dns_addresses: { id: excluded_ids })
         end
 
-        count = addresses_query.distinct(:id).count.count
+        addresses_query = addresses_query.distinct(:id)
+
+        count = addresses_query.count
+        count = count.count if query_string[:included].present?
 
         limit = records_per_page
-        offset = records_per_page * (page.to_i - 1)
+        offset = records_per_page * [page.to_i - 1, 0].max
 
         addresses_query = addresses_query.limit(limit).offset(offset)
 
@@ -38,7 +48,7 @@ module Api
           records << { id: address.id, ip_address: address.ipv4 }
         end
 
-        records_query = Dns::Record.joins(:addresses).where(addresses: {id: addresses_query.pluck(:id)})
+        records_query = Dns::Record.joins(:addresses).where(addresses: {id: addresses_query.pluck(:id)}).order(:id)
 
         related_hostnames = {}
         queried_hostnames = included + excluded
@@ -65,14 +75,18 @@ module Api
         hostnames = payload[:hostnames_attributes].map { |hn| Dns::Record.find_or_initialize_by(*hn) }
         address = Dns::Address.find_or_initialize_by(ipv4: payload[:ip])
 
-        if address.valid? and hostnames.all?(&:valid?)
+        # trigger all validations
+        valid_address = address.valid?
+        valid_hostnames = hostnames.map(&:valid?)
+
+        if valid_address and valid_hostnames.all?
           Dns::Address.transaction do
             address.records << hostnames.difference(address.records)
             address.save
           end
 
           json_response = {id: address.id}
-          render json: json_response
+          render json: json_response, status: :created
         else
           json_response = {errors: {
             dns_records: address.errors,
