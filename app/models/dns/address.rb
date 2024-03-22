@@ -14,7 +14,7 @@
 require 'resolv'
 
 class Dns::Address < ApplicationRecord
-  validates :ipv4, format: { with: Resolv::IPv4::Regex, message: "Invalid IPv4 format" }
+  validates :ipv4, presence: true, format: { with: Resolv::IPv4::Regex, message: "Invalid IPv4 format" }
 
   has_and_belongs_to_many :records, join_table: :dns_addresses_records,
                           foreign_key: :dns_address_id, association_foreign_key: :dns_record_id
